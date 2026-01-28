@@ -48,6 +48,16 @@
 			path = "GaitGuardAI Watch App";
 			sourceTree = "<group>";
 		};
+		77C0A001B3F14A2C9D5D0001 /* GaitGuardAI-iPhone */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "GaitGuardAI-iPhone";
+			sourceTree = "<group>";
+		};
+		77C0A002B3F14A2C9D5D0002 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,7 +82,9 @@
 			isa = PBXGroup;
 			children = (
 				6608BA102F29DF4C00C6F03E /* SessionManager.swift */,
+				77C0A002B3F14A2C9D5D0002 /* Shared */,
 				661A62C42F29813A0044AA5A /* GaitGuardAI Watch App */,
+				77C0A001B3F14A2C9D5D0001 /* GaitGuardAI-iPhone */,
 				661A62BB2F29813A0044AA5A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -123,6 +135,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				661A62C42F29813A0044AA5A /* GaitGuardAI Watch App */,
+				77C0A002B3F14A2C9D5D0002 /* Shared */,
 			);
 			name = "GaitGuardAI Watch App";
 			packageProductDependencies = (
@@ -142,6 +155,10 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				77C0A001B3F14A2C9D5D0001 /* GaitGuardAI-iPhone */,
+				77C0A002B3F14A2C9D5D0002 /* Shared */,
 			);
 			name = "GaitGuardAI-iPhone";
 			packageProductDependencies = (
@@ -480,10 +497,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2STYFMJ8WN;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "GaitGuardAI-iPhone/Info.plist";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
@@ -514,10 +528,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2STYFMJ8WN;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "GaitGuardAI-iPhone/Info.plist";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;

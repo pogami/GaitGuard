@@ -367,6 +367,10 @@ final class MotionDetector: ObservableObject {
         let now = Date()
         defaults.set(now, forKey: lastAssistAtKey)
         lastAssistText = Self.formatTime(now)
+        
+        // Send to iPhone via WatchConnectivity
+        let assistType = (state == .cueingStartAssist) ? "start" : "turn"
+        WatchConnectivityManager.shared.sendAssistEvent(type: assistType)
     }
 
     private static func formatTime(_ date: Date) -> String {
