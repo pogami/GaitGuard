@@ -1,10 +1,14 @@
+// GaitGuardAIApp.swift (REMOVE any duplicate SessionManager class from this file)
 import SwiftUI
 
-@main // This 'at' symbol is the "main" the error is looking for!
-struct GaitGuardAI_Watch_AppApp: App {
+@main
+struct GaitGuardAIApp: App {
+    @StateObject private var sessionManager = SessionManager()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(sessionManager)
         }
     }
 }
