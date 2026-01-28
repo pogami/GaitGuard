@@ -44,7 +44,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             header(iconSize: iconSize)
             
-            Spacer(minLength: 2)
+            Spacer(minLength: 0)
             
             // Status indicator with icon
             VStack(spacing: 2) {
@@ -69,6 +69,7 @@ struct ContentView: View {
         }
         .padding(.horizontal, padding)
         .padding(.bottom, 2)
+        .ignoresSafeArea(.all, edges: .top) // Allow content to move into the very top area
     }
 
     private func header(iconSize: CGFloat) -> some View {
@@ -90,7 +91,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.top, 14) // Slightly less top padding to pull everything up
+        .padding(.top, 0) // Remove the padding to move it to the very top
     }
 
     private var stats: some View {
