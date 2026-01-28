@@ -27,7 +27,12 @@ final class MotionDetector: ObservableObject {
         var cueDurationSeconds: Double = 6
     }
 
-    @Published private(set) var state: GuardState = .off
+    @Published private(set) var state: GuardState = .off {
+        didSet {
+            // Sync state to iPhone whenever it changes
+            WatchConnectivityManager.shared.sendStateUpdate(state.rawValue)
+        }
+    }
     @Published private(set) var isMonitoring: Bool = false
     @Published var settings: Settings = Settings()
 

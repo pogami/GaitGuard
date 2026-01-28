@@ -20,6 +20,9 @@ struct ContentView: View {
                 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
+                        // Live Status Card
+                        liveStatusCard
+                        
                         // Stats cards
                         statsCards
                         
@@ -62,6 +65,85 @@ struct ContentView: View {
                     }
                 }
             }
+        }
+    }
+    
+    private var liveStatusCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Live Status")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.secondary)
+                    
+                    Text(statusTitle)
+                        .font(.title2.bold())
+                        .foregroundStyle(statusColor)
+                }
+                
+                Spacer()
+                
+                ZStack {
+                    Circle()
+                        .fill(statusColor.opacity(0.15))
+                        .frame(width: 50, height: 50)
+                    
+                    Image(systemName: statusIcon)
+                        .font(.title2)
+                        .foregroundStyle(statusColor)
+                        .symbolEffect(.pulse, isActive: isLive)
+                }
+            }
+            
+            if isLive {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 8, height: 8)
+                    Text("Live Monitoring")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding()
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+    
+    private var isLive: Bool {
+        connectivity.remoteState != "off"
+    }
+    
+    private var statusTitle: String {
+        switch connectivity.remoteState {
+        case "off": return "Guard is Off"
+        case "monitoringStill": return "Ready"
+        case "monitoringWalking": return "Walking"
+        case "cueingStartAssist": return "Assisting: Start"
+        case "cueingTurnAssist": return "Assisting: Turn"
+        case "cooldown": return "Cooldown"
+        default: return "Connected"
+        }
+    }
+    
+    private var statusIcon: String {
+        switch connectivity.remoteState {
+        case "off": return "shield.slash.fill"
+        case "monitoringStill": return "bolt.shield.fill"
+        case "monitoringWalking": return "figure.walk"
+        case "cueingStartAssist", "cueingTurnAssist": return "metronome.fill"
+        case "cooldown": return "timer"
+        default: return "applewatch"
+        }
+    }
+    
+    private var statusColor: Color {
+        switch connectivity.remoteState {
+        case "off": return .gray
+        case "monitoringStill", "monitoringWalking": return .green
+        case "cueingStartAssist", "cueingTurnAssist": return .orange
+        case "cooldown": return .purple
+        default: return .blue
         }
     }
     

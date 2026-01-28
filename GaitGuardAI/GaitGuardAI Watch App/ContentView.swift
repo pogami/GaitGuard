@@ -41,46 +41,46 @@ struct ContentView: View {
     }
 
     private func mainLayout(padding: CGFloat, iconSize: CGFloat, showSubtitle: Bool) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 6) {
             header(iconSize: iconSize)
             
-            Spacer(minLength: 4)
+            Spacer(minLength: 2)
             
             // Status indicator with icon
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Image(systemName: statusIcon.name)
-                    .font(.system(size: 36, weight: .medium))
+                    .font(.system(size: 32, weight: .medium))
                     .foregroundStyle(statusIcon.color)
                     .symbolEffect(.pulse, isActive: isActive && engine.isMonitoring)
                 
                 Text(statusTitle)
-                    .font(.system(.title3, design: .rounded).bold())
+                    .font(.system(.headline, design: .rounded).bold())
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.8)
                 
                 if showSubtitle {
                     Text(statusSubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.8))
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.75)
+                        .minimumScaleFactor(0.8)
                         .padding(.horizontal, 4)
                 }
             }
             
-            Spacer(minLength: 4)
+            Spacer(minLength: 2)
             
             statsCompact
             
-            Spacer(minLength: 0)
+            Spacer(minLength: 2)
             
             controls
         }
-        .padding(.top, 4)
+        .padding(.top, 2)
         .padding(.horizontal, padding)
-        .padding(.bottom, 6)
+        .padding(.bottom, 4)
     }
 
     private func header(iconSize: CGFloat) -> some View {
@@ -137,38 +137,38 @@ struct ContentView: View {
     }
 
     private var statsCompact: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // Assists count
-            VStack(spacing: 3) {
+            VStack(spacing: 2) {
                 Text("\(engine.assistsToday)")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
                 
                 Text("Assists")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.8))
                     .textCase(.uppercase)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
             
             // Last assist time
-            VStack(spacing: 3) {
+            VStack(spacing: 2) {
                 Text(engine.lastAssistText)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .foregroundStyle(.primary)
+                    .minimumScaleFactor(0.5)
+                    .foregroundStyle(.white)
                 
                 Text("Last")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.8))
                     .textCase(.uppercase)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
         }
     }
 

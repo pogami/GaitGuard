@@ -248,7 +248,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				6608BA112F29DF4C00C6F03E /* SessionManager.swift in Sources */,
-				77C0A020B3F14A2C9D5D0020 /* Shared/WatchConnectivityManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -257,8 +256,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				77C0A021B3F14A2C9D5D0021 /* Shared/WatchConnectivityManager.swift in Sources */,
-				77C0A022B3F14A2C9D5D0022 /* GaitGuardAI-iPhone/ContentView.swift in Sources */,
-				77C0A023B3F14A2C9D5D0023 /* GaitGuardAI-iPhone/GaitGuardAIiPhoneApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -13,6 +13,7 @@ final class WatchConnectivityManager: NSObject, ObservableObject {
     static let shared = WatchConnectivityManager()
     
     @Published var assistEvents: [AssistEvent] = []
+    @Published var remoteState: String = "off"
     
     private let session: WCSession?
     private let eventsKey = "gaitguard.assistEvents"
@@ -43,8 +44,18 @@ final class WatchConnectivityManager: NSObject, ObservableObject {
         if session.isReachable {
             session.sendMessage(["assistEvent": data], replyHandler: nil)
         } else {
-            // Fallback: update application context (works when iPhone app is backgrounded)
             try? session.updateApplicationContext(["assistEvent": data])
+        }
+    }
+
+    func sendStateUpdate(_ state: String) {
+        guard let session = session else { return }
+        guard session.activationState == .activated else { return }
+        
+        if session.isReachable {
+            session.sendMessage(["guardState": state], replyHandler: nil)
+        } else {
+            try? session.updateApplicationContext(["guardState": state])
         }
     }
     
@@ -97,14 +108,24 @@ extension WatchConnectivityManager: WCSessionDelegate {
 #endif
     
     func session(_ session: WCSession, didReceiveMessage message: [String : Any]) {
-        if let data = message["assistEvent"] as? Data {
-            receiveAssistEvent(data)
+        DispatchQueue.main.async {
+            if let data = message["assistEvent"] as? Data {
+                self.receiveAssistEvent(data)
+            }
+            if let state = message["guardState"] as? String {
+                self.remoteState = state
+            }
         }
     }
     
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String : Any]) {
-        if let data = applicationContext["assistEvent"] as? Data {
-            receiveAssistEvent(data)
+        DispatchQueue.main.async {
+            if let data = applicationContext["assistEvent"] as? Data {
+                self.receiveAssistEvent(data)
+            }
+            if let state = applicationContext["guardState"] as? String {
+                self.remoteState = state
+            }
         }
     }
 }
