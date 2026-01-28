@@ -13,20 +13,31 @@ struct ContentView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Stats cards
-                    statsCards
-                    
-                    // Timeline
-                    timelineSection
-                    
-                    // Chart
-                    chartSection
+            ZStack(alignment: .top) {
+                // Background color that truly fills the screen
+                Color(uiColor: .systemGroupedBackground)
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        // Stats cards
+                        statsCards
+                        
+                        // Timeline
+                        timelineSection
+                        
+                        // Chart
+                        chartSection
+                        
+                        // Bottom padding to ensure scrollability
+                        Color.clear.frame(height: 20)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8) // Small top margin below title
                 }
-                .padding()
             }
             .navigationTitle("GaitGuard")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -36,13 +47,18 @@ struct ContentView: View {
                             }
                         }
                         
+                        Divider()
+                        
                         Button(role: .destructive) {
                             connectivity.clearEvents()
                         } label: {
-                            Label("Clear Data", systemImage: "trash")
+                            Label("Clear All Data", systemImage: "trash")
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis.circle.fill")
+                            .symbolRenderingMode(.hierarchical)
+                            .font(.title3)
+                            .foregroundStyle(.blue)
                     }
                 }
             }
@@ -61,53 +77,81 @@ struct ContentView: View {
             StatCard(
                 title: "This Week",
                 value: "\(weekCount)",
-                icon: "chart.bar",
+                icon: "chart.bar.fill",
                 color: .green
             )
         }
     }
     
     private var timelineSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Recent Assists")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Recent Assists")
+                    .font(.title3.bold())
+                Spacer()
+                Text(selectedTimeframe.rawValue)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
             
             if filteredEvents.isEmpty {
-                Text("No assists recorded yet.")
-                    .foregroundStyle(.secondary)
-                    .padding()
+                VStack(spacing: 12) {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("No assists recorded yet.")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
             } else {
-                ForEach(filteredEvents.prefix(10), id: \.timestamp) { event in
-                    TimelineRow(event: event)
+                VStack(spacing: 0) {
+                    ForEach(filteredEvents.prefix(10).enumerated().map({$0}), id: \.element.timestamp) { index, event in
+                        TimelineRow(event: event)
+                        if index < min(filteredEvents.count, 10) - 1 {
+                            Divider()
+                                .padding(.leading, 32)
+                        }
+                    }
                 }
             }
         }
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
     
     private var chartSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Daily Assists")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Activity Pattern")
+                .font(.title3.bold())
             
             if #available(iOS 16.0, *) {
-                Chart(dailyData) { item in
-                    BarMark(
-                        x: .value("Day", item.day, unit: .day),
-                        y: .value("Count", item.count)
-                    )
-                    .foregroundStyle(.blue.gradient)
+                Chart {
+                    ForEach(dailyData) { item in
+                        BarMark(
+                            x: .value("Day", item.day, unit: .day),
+                            y: .value("Count", item.count)
+                        )
+                        .foregroundStyle(Color.blue.gradient)
+                        .cornerRadius(4)
+                    }
                 }
-                .frame(height: 200)
+                .frame(height: 180)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .day)) { _ in
+                        AxisGridLine()
+                        AxisTick()
+                        AxisValueLabel(format: .dateTime.weekday(.abbreviated))
+                    }
+                }
             } else {
                 Text("Charts require iOS 16+")
                     .foregroundStyle(.secondary)
-                    .frame(height: 200)
+                    .frame(height: 180)
             }
         }
         .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
     
     // MARK: - Computed
@@ -152,21 +196,24 @@ struct StatCard: View {
     let color: Color
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Image(systemName: icon)
-                .font(.title2)
+                .font(.title3.bold())
                 .foregroundStyle(color)
             
-            Text(value)
-                .font(.title.bold())
-            
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.system(.title, design: .rounded).bold())
+                
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.03), radius: 10, x: 0, y: 5)
     }
 }
 
@@ -174,13 +221,19 @@ struct TimelineRow: View {
     let event: AssistEvent
     
     var body: some View {
-        HStack {
-            Circle()
-                .fill(event.type == "start" ? Color.orange : Color.purple)
-                .frame(width: 8, height: 8)
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(event.type == "start" ? Color.orange.opacity(0.2) : Color.purple.opacity(0.2))
+                    .frame(width: 32, height: 32)
+                
+                Image(systemName: event.type == "start" ? "bolt.fill" : "arrow.turn.up.right")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(event.type == "start" ? Color.orange : Color.purple)
+            }
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(event.type == "start" ? "Start Assist" : "Turn Assist")
+                Text(event.type == "start" ? "Start Hesitation Assist" : "Turn Assist")
                     .font(.subheadline.bold())
                 
                 Text(event.timestamp, style: .time)
@@ -189,8 +242,12 @@ struct TimelineRow: View {
             }
             
             Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.caption2.bold())
+                .foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 12)
     }
 }
 
