@@ -1,6 +1,6 @@
-# GaitGuardAI
+# GaitGuard
 
-GaitGuardAI is a **watchOS app** that monitors motion on an Apple Watch and provides **rhythmic haptic cueing** to help during **gait initiation** and **turning**, where *freezing of gait* can occur.
+GaitGuard is a **watchOS app** that monitors motion on an Apple Watch and provides **rhythmic haptic cueing** to help during **gait initiation** and **turning**, where *freezing of gait* can occur.
 
 > This project is intended as a **cueing aid / prototype**. It is **not** a medical device and should be tested **with supervision** before being relied on for safety-critical situations.
 
@@ -49,7 +49,7 @@ Important: thresholds are intentionally simple, and are designed to be **tunable
 ## Running on Apple Watch
 
 1. Open `GaitGuardAI/GaitGuardAI.xcodeproj` in Xcode.
-2. Select the scheme: **`GaitGuardAI Watch App`**
+2. Select the scheme: **`GaitGuard Watch App`**
 3. Select a run destination:
    - a Watch Simulator, or
    - your paired physical Apple Watch
@@ -57,8 +57,8 @@ Important: thresholds are intentionally simple, and are designed to be **tunable
 
 ### If the app doesn’t appear on your watch
 
-- In Xcode, ensure you are running **`GaitGuardAI Watch App`** (not only the iPhone target).
-- On iPhone: open the **Watch** app → find GaitGuardAI → install / enable “Show App on Apple Watch”.
+- In Xcode, ensure you are running **`GaitGuard Watch App`** (not only the iPhone target).
+- On iPhone: open the **Watch** app → find GaitGuard → install / enable “Show App on Apple Watch”.
 - If icons or installs are stale: delete the app from the watch, **Clean Build Folder**, then run again.
 
 ## Safety notes (please read)
@@ -69,8 +69,8 @@ Important: thresholds are intentionally simple, and are designed to be **tunable
 
 ## Project structure
 
-- `GaitGuardAI/GaitGuardAI Watch App/ContentView.swift`: watch UI
-- `GaitGuardAI/GaitGuardAI Watch App/MotionDetector.swift`: motion ingest, state machine, cueing + stats
+- `GaitGuardAI/GaitGuard Watch App/ContentView.swift`: watch UI
+- `GaitGuardAI/GaitGuard Watch App/MotionDetector.swift`: motion ingest, state machine, cueing + stats
 - `GaitGuardAI/SessionManager.swift`: `WKExtendedRuntimeSession` management
 
 ## Tuning
