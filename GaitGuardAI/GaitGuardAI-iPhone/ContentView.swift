@@ -22,6 +22,9 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 24) {
                         // Live Status Card
                         liveStatusCard
+
+                        // Demo controls (lets you see charts + live state without wearing the watch)
+                        demoControls
                         
                         // Stats cards
                         statsCards
@@ -104,6 +107,37 @@ struct ContentView: View {
                         .font(.caption.bold())
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+        .padding()
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var demoControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Demo / Test")
+                .font(.subheadline.bold())
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button {
+                    connectivity.addDemoEvents()
+                } label: {
+                    Label("Add Sample Data", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    if connectivity.isLiveDemoRunning {
+                        connectivity.stopLiveDemo()
+                    } else {
+                        connectivity.startLiveDemo()
+                    }
+                } label: {
+                    Label(connectivity.isLiveDemoRunning ? "Stop Live Demo" : "Start Live Demo",
+                          systemImage: connectivity.isLiveDemoRunning ? "stop.fill" : "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding()

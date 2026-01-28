@@ -18,6 +18,9 @@ final class WatchConnectivityManager: NSObject, ObservableObject {
     private let session: WCSession?
     private let eventsKey = "gaitguard.assistEvents"
     private var pendingGuardState: String?
+#if os(iOS)
+    private var demoTimer: Timer?
+#endif
     
     override init() {
         if WCSession.isSupported() {
@@ -102,6 +105,70 @@ final class WatchConnectivityManager: NSObject, ObservableObject {
         assistEvents.removeAll()
         UserDefaults.standard.removeObject(forKey: eventsKey)
     }
+
+    // MARK: - Demo (iPhone-only)
+
+#if os(iOS)
+    /// Adds a small set of sample events so charts/timeline have something to render.
+    func addDemoEvents() {
+        let now = Date()
+        let demo: [AssistEvent] = [
+            AssistEvent(timestamp: now.addingTimeInterval(-60 * 12), type: "start"),
+            AssistEvent(timestamp: now.addingTimeInterval(-60 * 9), type: "turn"),
+            AssistEvent(timestamp: now.addingTimeInterval(-60 * 6), type: "start"),
+            AssistEvent(timestamp: now.addingTimeInterval(-60 * 2), type: "turn")
+        ]
+        assistEvents.append(contentsOf: demo)
+        assistEvents.sort { $0.timestamp > $1.timestamp }
+        if assistEvents.count > 100 {
+            assistEvents.removeFirst(assistEvents.count - 100)
+        }
+        saveEvents()
+    }
+
+    /// Simulates a live session: toggles state and emits assist events every few seconds.
+    func startLiveDemo() {
+        stopLiveDemo()
+        remoteState = "monitoringStill"
+
+        demoTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+
+            // Rotate through a believable pattern.
+            let roll = Int.random(in: 0...9)
+            switch roll {
+            case 0...4:
+                self.remoteState = "monitoringWalking"
+            case 5:
+                self.remoteState = "monitoringStill"
+            case 6:
+                self.remoteState = "cueingStartAssist"
+                self.assistEvents.append(AssistEvent(timestamp: Date(), type: "start"))
+            case 7:
+                self.remoteState = "cueingTurnAssist"
+                self.assistEvents.append(AssistEvent(timestamp: Date(), type: "turn"))
+            default:
+                self.remoteState = "cooldown"
+            }
+
+            // Keep the list bounded + persist so charts update reliably.
+            self.assistEvents.sort { $0.timestamp > $1.timestamp }
+            if self.assistEvents.count > 100 {
+                self.assistEvents.removeFirst(self.assistEvents.count - 100)
+            }
+            self.saveEvents()
+        }
+        RunLoop.main.add(demoTimer!, forMode: .common)
+    }
+
+    func stopLiveDemo() {
+        demoTimer?.invalidate()
+        demoTimer = nil
+        remoteState = "off"
+    }
+
+    var isLiveDemoRunning: Bool { demoTimer != nil }
+#endif
 }
 
 // MARK: - WCSessionDelegate
