@@ -83,14 +83,14 @@ struct ContentView: View {
             
             VStack(alignment: .leading, spacing: 2) {
                 Text("GaitGuard")
-                    .font(.system(.headline, design: .rounded).bold())
+                    .font(.system(.subheadline, design: .rounded).bold())
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Text(isActive ? "Right wrist" : "Wear on right wrist")
+                    .minimumScaleFactor(0.65)
+                Text(isActive ? "Right wrist" : "Wear right wrist")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.7)
             }
             
             Spacer(minLength: 0)
@@ -99,12 +99,12 @@ struct ContentView: View {
                 showingSettings = true
             } label: {
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 26, height: 26)
+                    .background(.thinMaterial, in: Circle())
             }
-            .buttonStyle(.bordered)
-            .tint(.white.opacity(0.25))
+            .buttonStyle(.plain)
             .accessibilityLabel("Settings")
-            .disabled(!isActive)
         }
     }
 
@@ -181,8 +181,13 @@ struct ContentView: View {
 
     private var settingsSheet: some View {
         VStack(spacing: 12) {
-            Text("Settings")
-                .font(.headline)
+            HStack {
+                Text("Settings")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { showingSettings = false }
+                    .font(.subheadline.bold())
+            }
             
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -193,17 +198,49 @@ struct ContentView: View {
                 }
                 Slider(value: $engine.settings.sensitivity, in: 0.0...1.0, step: 0.01)
                 
-                Text("Higher sensitivity triggers cues sooner (more false alarms).")
+                Text("Higher sensitivity cues sooner (more false alarms).")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             .padding(10)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             
-            Button("Done") {
-                showingSettings = false
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Testing")
+                    .font(.subheadline.bold())
+                
+                Text("Note: Watch Simulator may not vibrate. Test on a real watch.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                
+                HStack(spacing: 8) {
+                    Button("Test Haptic") {
+                        engine.testHaptic()
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Button("Sim Start") {
+                        engine.simulateAssist(kind: .start)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                
+                Button("Sim Turn") {
+                    engine.simulateAssist(kind: .turn)
+                }
+                .buttonStyle(.bordered)
+                
+                HStack {
+                    Text("State")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(engine.state.rawValue)
+                        .font(.caption2.bold())
+                }
             }
-            .buttonStyle(.borderedProminent)
+            .padding(10)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .padding()
     }

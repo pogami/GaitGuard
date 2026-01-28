@@ -302,8 +302,8 @@ final class MotionDetector: ObservableObject {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: interval)
         timer.setEventHandler {
-            // Using a clean, low-annoyance haptic. Change to `.directionUp` if you want stronger feedback.
-            WKInterfaceDevice.current().play(.click)
+            // Stronger haptic for real-world cueing.
+            WKInterfaceDevice.current().play(.directionUp)
         }
         timer.resume()
         cueTimer = timer
@@ -371,6 +371,24 @@ final class MotionDetector: ObservableObject {
         // Send to iPhone via WatchConnectivity
         let assistType = (state == .cueingStartAssist) ? "start" : "turn"
         WatchConnectivityManager.shared.sendAssistEvent(type: assistType)
+    }
+
+    // MARK: - Manual testing helpers (for development / demo)
+
+    enum AssistKind {
+        case start
+        case turn
+    }
+
+    func testHaptic() {
+        WKInterfaceDevice.current().play(.directionUp)
+    }
+
+    /// Simulate an assist event (updates stats + sends to iPhone) so you can verify UI + connectivity.
+    func simulateAssist(kind: AssistKind) {
+        state = (kind == .start) ? .cueingStartAssist : .cueingTurnAssist
+        recordAssist()
+        WKInterfaceDevice.current().play(.directionUp)
     }
 
     private static func formatTime(_ date: Date) -> String {
