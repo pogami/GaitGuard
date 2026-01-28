@@ -87,4 +87,4 @@ Open **Settings** in the watch app and adjust **Sensitivity**:
 
 ## License
 
-Add a license if you plan to share or accept contributions.
+This project is licensed under the **MIT License**. See `LICENSE` for details.
