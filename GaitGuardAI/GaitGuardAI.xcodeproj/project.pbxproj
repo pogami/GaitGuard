@@ -168,7 +168,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				77C0A001B3F14A2C9D5D0001 /* GaitGuardAI-iPhone */,
-				77C0A002B3F14A2C9D5D0002 /* Shared */,
 			);
 			name = "GaitGuardAI-iPhone";
 			packageProductDependencies = (
