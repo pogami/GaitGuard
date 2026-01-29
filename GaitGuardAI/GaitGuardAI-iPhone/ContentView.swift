@@ -115,6 +115,7 @@ struct ContentView: View {
                         Label("Refresh State", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
+                    .tint(.blue)
 
                     Button {
                         connectivity.requestTelemetryFromWatch()
@@ -122,6 +123,8 @@ struct ContentView: View {
                         Label("Request Live Data", systemImage: "waveform.path.ecg")
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    .foregroundStyle(.white)
                 }
             }
 
@@ -190,6 +193,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .tint(.blue)
 
                 Button {
                     if connectivity.isLiveDemoRunning {
@@ -203,6 +207,8 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(connectivity.isLiveDemoRunning ? .red : .green)
+                .foregroundStyle(.white)
             }
         }
         .padding()
