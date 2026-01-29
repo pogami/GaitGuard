@@ -108,12 +108,21 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Button {
-                    connectivity.requestCurrentStateFromWatch()
-                } label: {
-                    Label("Refresh from Watch", systemImage: "arrow.clockwise")
+                HStack(spacing: 12) {
+                    Button {
+                        connectivity.requestCurrentStateFromWatch()
+                    } label: {
+                        Label("Refresh State", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        connectivity.requestTelemetryFromWatch()
+                    } label: {
+                        Label("Request Live Data", systemImage: "waveform.path.ecg")
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                .buttonStyle(.bordered)
             }
 
             // Debug line: helps verify WCSession is actually connected/reachable.
@@ -124,6 +133,43 @@ struct ContentView: View {
                 Text("paired: \(connectivity.wcIsPaired ? "yes" : "no") • watch app installed: \(connectivity.wcIsWatchAppInstalled ? "yes" : "no")")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                if let at = connectivity.lastTelemetryReceivedAt {
+                    Text("last telemetry: \(at, style: .time)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("last telemetry: —")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let t = connectivity.lastTelemetry {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Cadence")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.2f Hz", t.cadenceHz))
+                            .font(.headline.bold())
+                    }
+                    Spacer()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Turn")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.2f rad/s", t.turnRateRadPerSec))
+                            .font(.headline.bold())
+                    }
+                    Spacer()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Move")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.2f g", t.movementIntensity))
+                            .font(.headline.bold())
+                    }
+                }
             }
         }
         .padding()

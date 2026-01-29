@@ -54,6 +54,7 @@ final class MotionDetector: ObservableObject {
     private var cueTimer: DispatchSourceTimer?
     private var cueEndTimer: DispatchSourceTimer?
     private var cooldownUntil: Date?
+    private var lastTelemetrySentAt: TimeInterval = 0
 
     private let defaults = UserDefaults.standard
     private let assistsDateKey = "gaitguard.assists.date"
@@ -129,6 +130,20 @@ final class MotionDetector: ObservableObject {
 
         updateStepPeaks(now: t)
         let cadenceHz = stepCadenceHz(now: t)
+
+        // Send 1 Hz telemetry so the iPhone can prove "live + connected" even when no assists happen.
+        if t - lastTelemetrySentAt >= 1.0 {
+            lastTelemetrySentAt = t
+            WatchConnectivityManager.shared.sendTelemetry(
+                LiveTelemetry(
+                    timestamp: Date(),
+                    guardState: state.rawValue,
+                    cadenceHz: cadenceHz,
+                    turnRateRadPerSec: abs(rotZ),
+                    movementIntensity: userAccMag
+                )
+            )
+        }
 
         // High-level walking/still classification for UX + gating.
         if cadenceHz >= 0.85 {

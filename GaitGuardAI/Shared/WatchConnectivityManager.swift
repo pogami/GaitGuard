@@ -9,11 +9,23 @@ struct AssistEvent: Codable {
     let type: String // "start" or "turn"
 }
 
+struct LiveTelemetry: Codable, Equatable {
+    let timestamp: Date
+    let guardState: String
+    let cadenceHz: Double
+    let turnRateRadPerSec: Double
+    let movementIntensity: Double
+}
+
 final class WatchConnectivityManager: NSObject, ObservableObject {
     static let shared = WatchConnectivityManager()
     
     @Published var assistEvents: [AssistEvent] = []
     @Published var remoteState: String = "off"
+#if os(iOS)
+    @Published var lastTelemetry: LiveTelemetry?
+    @Published var lastTelemetryReceivedAt: Date?
+#endif
 #if os(watchOS)
     /// Latest known state on the watch (used to answer iPhone "refresh" requests).
     @Published private(set) var localState: String = "off"
@@ -104,6 +116,20 @@ final class WatchConnectivityManager: NSObject, ObservableObject {
         updateApplicationContextMerging(["guardState": state])
     }
 
+    func sendTelemetry(_ telemetry: LiveTelemetry) {
+        guard let session = session else { return }
+        guard session.activationState == .activated else { return }
+        guard let data = try? JSONEncoder().encode(telemetry) else { return }
+
+        if session.isReachable {
+            session.sendMessage(["telemetry": data], replyHandler: nil) { [weak self] _ in
+                self?.updateApplicationContextMerging(["telemetry": data])
+            }
+        } else {
+            updateApplicationContextMerging(["telemetry": data])
+        }
+    }
+
     private func updateApplicationContextMerging(_ updates: [String: Any]) {
         guard let session = session else { return }
         // IMPORTANT: updateApplicationContext replaces the entire dictionary.
@@ -127,6 +153,11 @@ final class WatchConnectivityManager: NSObject, ObservableObject {
         if let state = session.receivedApplicationContext["guardState"] as? String {
             remoteState = state
         }
+        if let data = session.receivedApplicationContext["telemetry"] as? Data,
+           let decoded = try? JSONDecoder().decode(LiveTelemetry.self, from: data) {
+            lastTelemetry = decoded
+            lastTelemetryReceivedAt = Date()
+        }
     }
 
     /// Ask the watch for its current guard state (useful if the iPhone launched after the watch started).
@@ -139,6 +170,24 @@ final class WatchConnectivityManager: NSObject, ObservableObject {
             guard let self else { return }
             if let state = reply["guardState"] as? String {
                 DispatchQueue.main.async { self.remoteState = state }
+            }
+        }, errorHandler: nil)
+    }
+
+    func requestTelemetryFromWatch() {
+        guard let session = session else { return }
+        guard session.activationState == .activated else { return }
+        guard session.isReachable else { return }
+
+        session.sendMessage(["requestTelemetry": true], replyHandler: { [weak self] reply in
+            guard let self else { return }
+            if let data = reply["telemetry"] as? Data,
+               let decoded = try? JSONDecoder().decode(LiveTelemetry.self, from: data) {
+                DispatchQueue.main.async {
+                    self.lastTelemetry = decoded
+                    self.lastTelemetryReceivedAt = Date()
+                    self.remoteState = decoded.guardState
+                }
             }
         }, errorHandler: nil)
     }
@@ -269,6 +318,14 @@ extension WatchConnectivityManager: WCSessionDelegate {
             if let state = message["guardState"] as? String {
                 self.remoteState = state
             }
+            if let data = message["telemetry"] as? Data,
+               let decoded = try? JSONDecoder().decode(LiveTelemetry.self, from: data) {
+#if os(iOS)
+                self.lastTelemetry = decoded
+                self.lastTelemetryReceivedAt = Date()
+                self.remoteState = decoded.guardState
+#endif
+            }
         }
     }
 
@@ -278,6 +335,14 @@ extension WatchConnectivityManager: WCSessionDelegate {
 #if os(watchOS)
         if (message["requestState"] as? Bool) == true {
             replyHandler(["guardState": self.localState])
+            return
+        }
+        if (message["requestTelemetry"] as? Bool) == true {
+            if let data = session.receivedApplicationContext["telemetry"] as? Data {
+                replyHandler(["telemetry": data])
+            } else {
+                replyHandler([:])
+            }
             return
         }
 #endif
@@ -292,6 +357,14 @@ extension WatchConnectivityManager: WCSessionDelegate {
             }
             if let state = applicationContext["guardState"] as? String {
                 self.remoteState = state
+            }
+            if let data = applicationContext["telemetry"] as? Data,
+               let decoded = try? JSONDecoder().decode(LiveTelemetry.self, from: data) {
+#if os(iOS)
+                self.lastTelemetry = decoded
+                self.lastTelemetryReceivedAt = Date()
+                self.remoteState = decoded.guardState
+#endif
             }
         }
     }
