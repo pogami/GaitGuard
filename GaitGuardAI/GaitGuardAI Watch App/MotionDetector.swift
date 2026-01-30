@@ -1,423 +1,596 @@
 import Foundation
 import CoreMotion
 import WatchKit
+import SwiftUI
 import Combine
+import WatchConnectivity
 
-/// Motion + detection engine for gait initiation / turn-freeze cueing.
-///
-/// Notes:
-/// - Uses device motion (`userAcceleration` + `rotationRate`) in `.xArbitraryZVertical` frame for a stable vertical axis.
-/// - This is NOT a medical device. It is a cueing aid and should be tested supervised first.
-final class MotionDetector: ObservableObject {
-    enum GuardState: String {
-        case off
-        case monitoringStill
-        case monitoringWalking
-        case cueingStartAssist
-        case cueingTurnAssist
-        case cooldown
+// NOTE: You may see a warning about reading com.apple.CoreMotion.plist
+// This is a harmless system-level warning that occurs when CoreMotion framework
+// tries to read managed preferences. Apps don't have permission to access these
+// system files, but CoreMotion handles this gracefully and continues to work.
+// Error code 257 (NSCocoaErrorDomain) indicates permission denied, which is expected.
+// This warning can be safely ignored and does not affect app functionality.
+
+class MotionDetector: ObservableObject {
+    @Published var isCalibrating = false
+    @Published var calibrationProgress: Double = 0.0 // 0.0 to 1.0
+    @Published var calibrationTimeRemaining: Int = 30 // seconds
+    @Published var batteryLow: Bool = false
+    @Published var monitoringStoppedDueToBattery: Bool = false
+    
+    private let motionManager = CMMotionManager()
+    private var baselineMagnitude: Double = 1.0
+    private var magnitudeHistory: [Double] = []
+    private let historySize = 100 // Keep last 100 samples for baseline
+    private var freezeStartTime: Date?
+    private var lastFreezeTime: Date?
+    private var consecutiveFreezes = 0
+    private var lastHapticTime: Date? // For haptic fatigue prevention
+    private let hapticCooldownPeriod: TimeInterval = 2.5 // 2.5 seconds between haptics
+    
+    // Calibration data
+    private var calibrationData: [Double] = []
+    private var calibrationStartTime: Date?
+    private var calibrationTimer: Timer?
+    
+    // Calibration constants
+    private let calibrationDuration: TimeInterval = 30.0 // 30 seconds
+    private let calibrationDataKey = "gaitguard.calibrationData"
+    private let calibrationAverageKey = "gaitguard.calibrationAverage"
+    private let calibrationStdDevKey = "gaitguard.calibrationStdDev"
+    
+    init() {
+        loadCalibrationData()
+        // Suppress CoreMotion preference reading warnings
+        // This is a harmless system-level warning that occurs when CoreMotion
+        // tries to read managed preferences (which apps don't have access to)
+        setupMotionManager()
     }
-
-    struct Settings: Equatable {
-        /// 0.0 = less sensitive (fewer cues), 1.0 = more sensitive (more cues)
-        var sensitivity: Double = 0.55
-        /// Seconds after a cue where we will not cue again.
-        var cooldownSeconds: Double = 10
-        /// Seconds the metronome cue runs.
-        var cueDurationSeconds: Double = 6
+    
+    private func setupMotionManager() {
+        // Check availability before accessing motion manager
+        guard motionManager.isAccelerometerAvailable else {
+            #if DEBUG
+            print("[MotionDetector] Accelerometer not available")
+            #endif
+            return
+        }
+        
+        // The warning about reading CoreMotion.plist is expected and harmless
+        // It occurs at the system level when CoreMotion initializes
+        // No action needed - the framework handles this gracefully
     }
-
-    @Published private(set) var state: GuardState = .off {
-        didSet {
-            // Sync state to iPhone whenever it changes.
-            WatchConnectivityManager.shared.sendStateUpdate(state.rawValue)
+    
+    private func loadCalibrationData() {
+        // Load saved calibration average to set baseline
+        if let average = UserDefaults.standard.object(forKey: calibrationAverageKey) as? Double {
+            baselineMagnitude = average
         }
     }
-    @Published private(set) var isMonitoring: Bool = false
-    @Published var settings: Settings = Settings()
-
-    @Published private(set) var assistsToday: Int = 0
-    @Published private(set) var lastAssistText: String = "—"
-
-    private let motionManager = CMMotionManager()
-
-    // Rolling sample history (simple + cheap).
-    private var lastSamples: [(t: TimeInterval, userAccMag: Double, rotZ: Double, rotMag: Double)] = []
-    private let maxWindowSeconds: TimeInterval = 2.2
-
-    private var lastPeakTime: TimeInterval = 0
-    private var peakTimes: [TimeInterval] = []
-
-    private var lastAttemptStart: TimeInterval?
-    private var lastTurnStart: TimeInterval?
-
-    private var cueTimer: DispatchSourceTimer?
-    private var cueEndTimer: DispatchSourceTimer?
-    private var cooldownUntil: Date?
-    private var lastTelemetrySentAt: TimeInterval = 0
-
-    private let defaults = UserDefaults.standard
-    private let assistsDateKey = "gaitguard.assists.date"
-    private let assistsCountKey = "gaitguard.assists.count"
-    private let lastAssistAtKey = "gaitguard.assists.lastAt"
-
-    init() {
-        loadAssistStats()
+    
+    // Adaptive threshold settings
+    private var adaptiveThreshold: Double {
+        let settings = WatchConnectivityManager.shared.watchSettings
+        
+        // First check if we have calibration data
+        if let calibratedThreshold = getCalibratedThreshold() {
+            if settings.adaptiveThreshold {
+                return calibratedThreshold
+            } else {
+                // Use settings sensitivity but adjust based on calibration
+                return max(settings.sensitivity, calibratedThreshold * 0.8)
+            }
+        }
+        
+        // Fallback to old logic if no calibration
+        if settings.adaptiveThreshold {
+            // Adaptive: baseline + 30% variance
+            return baselineMagnitude * 1.3
+        } else {
+            // Fixed threshold from settings
+            return settings.sensitivity
+        }
+    }
+    
+    // MARK: - Calibration
+    
+    func startCalibration() {
+        guard !isCalibrating else { return }
+        
+        // Trigger haptic when calibration begins
+        WKInterfaceDevice.current().play(.start)
+        
+        isCalibrating = true
+        calibrationData.removeAll()
+        calibrationStartTime = Date()
+        calibrationProgress = 0.0
+        calibrationTimeRemaining = Int(calibrationDuration)
+        
+        // Notify iPhone that calibration started
+        sendCalibrationStatus()
+        
+        // Start collecting data
+        startCalibrationDataCollection()
+        
+        // Start countdown timer
+        calibrationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard let self = self else {
+                timer.invalidate()
+                return
+            }
+            
+            let elapsed = Date().timeIntervalSince(self.calibrationStartTime ?? Date())
+            let remaining = max(0, self.calibrationDuration - elapsed)
+            
+            self.calibrationTimeRemaining = Int(remaining)
+            self.calibrationProgress = min(1.0, elapsed / self.calibrationDuration)
+            
+            // Update iPhone every second
+            self.sendCalibrationStatus()
+            
+            if remaining <= 0 {
+                self.finishCalibration()
+                timer.invalidate()
+            }
+        }
+    }
+    
+    private func sendCalibrationStatus() {
+        #if os(watchOS)
+        struct CalibrationStatus: Codable {
+            let isCalibrating: Bool
+            let progress: Double
+            let timeRemaining: Int
+        }
+        
+        let status = CalibrationStatus(
+            isCalibrating: isCalibrating,
+            progress: calibrationProgress,
+            timeRemaining: calibrationTimeRemaining
+        )
+        
+        guard let session = WatchConnectivityManager.shared.wcSession, session.isReachable else { return }
+        guard let data = try? JSONEncoder().encode(status) else { return }
+        session.sendMessage(["calibrationStatus": data], replyHandler: nil)
+        #endif
+    }
+    
+    func stopCalibration() {
+        isCalibrating = false
+        calibrationTimer?.invalidate()
+        calibrationTimer = nil
+        calibrationData.removeAll()
+        calibrationStartTime = nil
+        motionManager.stopAccelerometerUpdates()
+        
+        // Notify iPhone that calibration stopped
+        sendCalibrationStatus()
+    }
+    
+    private func startCalibrationDataCollection() {
+        guard motionManager.isAccelerometerAvailable else {
+            stopCalibration()
+            return
+        }
+        
+        motionManager.accelerometerUpdateInterval = 1.0 / 50.0 // 50Hz
+        
+        // Counter for throttling live data streaming (10Hz = every 5th sample)
+        var sampleCounter = 0
+        
+        motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, error in
+            if let error = error {
+                // Suppress harmless CoreMotion preference reading errors
+                #if DEBUG
+                if (error as NSError).code != 257 {
+                    print("[MotionDetector] Calibration accelerometer error: \(error.localizedDescription)")
+                }
+                #endif
+                return
+            }
+            guard let self = self, self.isCalibrating, let data = data else { return }
+            
+            let x = data.acceleration.x
+            let y = data.acceleration.y
+            let z = data.acceleration.z
+            let magnitude = sqrt(x*x + y*y + z*z)
+            
+            // Only collect magnitude for baseline calculation
+            self.calibrationData.append(magnitude)
+            
+            // Stream live data to iPhone during calibration (throttled to 10Hz to avoid overwhelming)
+            sampleCounter += 1
+            if sampleCounter % 5 == 0 { // 50Hz / 5 = 10Hz
+                WatchConnectivityManager.shared.sendAccelerometerData(
+                    x: x,
+                    y: y,
+                    z: z,
+                    timestamp: Date()
+                )
+            }
+        }
+    }
+    
+    private func finishCalibration() {
+        guard !calibrationData.isEmpty else {
+            stopCalibration()
+            return
+        }
+        
+        // Calculate average
+        let average = calibrationData.reduce(0, +) / Double(calibrationData.count)
+        
+        // Calculate standard deviation
+        let variance = calibrationData.map { pow($0 - average, 2) }.reduce(0, +) / Double(calibrationData.count)
+        let standardDeviation = sqrt(variance)
+        
+        // Quality check: if stdDev is too high (>50% of average), calibration is unstable
+        let coefficientOfVariation = standardDeviation / average
+        if coefficientOfVariation > 0.5 {
+            // Calibration unstable - too noisy
+            stopCalibration()
+            // Show error state (will be handled in UI)
+            DispatchQueue.main.async {
+                // Store error state
+                UserDefaults.standard.set(true, forKey: "gaitguard.calibrationUnstable")
+            }
+            // Error haptic
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // Clear any previous error
+        UserDefaults.standard.removeObject(forKey: "gaitguard.calibrationUnstable")
+        
+        // Calculate baseline threshold (mean + 2 standard deviations)
+        let baselineThreshold = average + (2.0 * standardDeviation)
+        
+        // Save to UserDefaults
+        UserDefaults.standard.set(calibrationData, forKey: calibrationDataKey)
+        UserDefaults.standard.set(average, forKey: calibrationAverageKey)
+        UserDefaults.standard.set(standardDeviation, forKey: calibrationStdDevKey)
+        
+        // Update baseline magnitude
+        baselineMagnitude = average
+        
+        // Send calibration results to iPhone
+        WatchConnectivityManager.shared.sendCalibrationResults(
+            average: average,
+            standardDeviation: standardDeviation,
+            baselineThreshold: baselineThreshold,
+            sampleCount: calibrationData.count
+        )
+        
+        // Stop calibration
+        stopCalibration()
+        
+        // Provide haptic feedback for completion
+        WKInterfaceDevice.current().play(.success)
+    }
+    
+    func isCalibrationUnstable() -> Bool {
+        return UserDefaults.standard.bool(forKey: "gaitguard.calibrationUnstable")
+    }
+    
+    func resetCalibrationError() {
+        UserDefaults.standard.removeObject(forKey: "gaitguard.calibrationUnstable")
+    }
+    
+    func resetToFactorySettings() {
+        // Clear calibration data
+        UserDefaults.standard.removeObject(forKey: calibrationDataKey)
+        UserDefaults.standard.removeObject(forKey: calibrationAverageKey)
+        UserDefaults.standard.removeObject(forKey: calibrationStdDevKey)
+        UserDefaults.standard.removeObject(forKey: "gaitguard.calibrationUnstable")
+        
+        // Reset baseline to default
+        baselineMagnitude = 1.0
+    }
+    
+    private func getCalibratedThreshold() -> Double? {
+        guard let average = UserDefaults.standard.object(forKey: calibrationAverageKey) as? Double,
+              let stdDev = UserDefaults.standard.object(forKey: calibrationStdDevKey) as? Double else {
+            return nil
+        }
+        
+        // Threshold = average + 2 standard deviations (covers ~95% of normal gait)
+        return average + (2.0 * stdDev)
+    }
+    
+    func hasCalibrationData() -> Bool {
+        return UserDefaults.standard.object(forKey: calibrationAverageKey) != nil
+    }
+    
+    func getCalibrationInfo() -> (average: Double, stdDev: Double, threshold: Double)? {
+        guard let average = UserDefaults.standard.object(forKey: calibrationAverageKey) as? Double,
+              let stdDev = UserDefaults.standard.object(forKey: calibrationStdDevKey) as? Double else {
+            return nil
+        }
+        
+        let threshold = average + (2.0 * stdDev)
+        return (average: average, stdDev: stdDev, threshold: threshold)
     }
     
     func startMonitoring() {
-        guard motionManager.isDeviceMotionAvailable else { return }
-        guard !isMonitoring else { return }
-
-        // Reset transient detection state when (re)starting.
-        lastSamples.removeAll(keepingCapacity: true)
-        peakTimes.removeAll(keepingCapacity: true)
-        lastPeakTime = 0
-        lastAttemptStart = nil
-        lastTurnStart = nil
-        cooldownUntil = nil
-
-        motionManager.deviceMotionUpdateInterval = 1.0 / 50.0
-        isMonitoring = true
-        state = .monitoringStill
-        // Ensure iPhone sees "live" immediately even if the state setter fired before WCSession activated.
-        WatchConnectivityManager.shared.sendStateUpdate(state.rawValue)
-
-        motionManager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] motion, _ in
-            guard let self, let motion else { return }
-            self.ingest(motion: motion)
+        guard motionManager.isAccelerometerAvailable else { return }
+        
+        // Battery safety check
+        if checkBatteryLevel() {
+            monitoringStoppedDueToBattery = true
+            WKInterfaceDevice.current().play(.failure) // Alert haptic
+            return
+        }
+        
+        monitoringStoppedDueToBattery = false
+        
+        // Start heartbeat when monitoring starts
+        WatchConnectivityManager.shared.startHeartbeat()
+        
+        motionManager.accelerometerUpdateInterval = 1.0 / 50.0 // 50Hz
+        
+        // Counter for throttling live data streaming (10Hz = every 5th sample)
+        var sampleCounter = 0
+        
+        motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, error in
+            if let error = error {
+                // Suppress harmless CoreMotion preference reading errors
+                // These are system-level warnings that don't affect functionality
+                #if DEBUG
+                if (error as NSError).code != 257 {
+                    // Only log non-permission errors
+                    print("[MotionDetector] Accelerometer error: \(error.localizedDescription)")
+                }
+                #endif
+                return
+            }
+            guard let data = data else { return }
+            
+            // Periodic battery check (every 60 seconds worth of samples at 50Hz = 3000 samples)
+            if let self = self, self.magnitudeHistory.count % 3000 == 0 {
+                if self.checkBatteryLevel() {
+                    self.stopMonitoring()
+                    self.monitoringStoppedDueToBattery = true
+                    WKInterfaceDevice.current().play(.failure)
+                    return
+                }
+            }
+            
+            let x = data.acceleration.x
+            let y = data.acceleration.y
+            let z = data.acceleration.z
+            let magnitude = sqrt(x*x + y*y + z*z)
+            
+            self?.updateBaseline(magnitude)
+            
+            // Stream live data to iPhone (throttled to 10Hz to avoid overwhelming connection)
+            sampleCounter += 1
+            if sampleCounter % 5 == 0 { // 50Hz / 5 = 10Hz
+                WatchConnectivityManager.shared.sendAccelerometerData(
+                    x: x,
+                    y: y,
+                    z: z,
+                    timestamp: Date()
+                )
+            }
+            
+            // Detect freeze (start event)
+            if magnitude > self?.adaptiveThreshold ?? 1.3 {
+                self?.handleFreeze(magnitude: magnitude)
+            }
+        }
+        
+        // Also monitor gyroscope for turn detection
+        if motionManager.isGyroAvailable {
+            motionManager.gyroUpdateInterval = 1.0 / 50.0
+            motionManager.startGyroUpdates(to: .main) { [weak self] gyroData, error in
+                if let error = error {
+                    // Suppress harmless CoreMotion preference reading errors
+                    #if DEBUG
+                    if (error as NSError).code != 257 {
+                        print("[MotionDetector] Gyroscope error: \(error.localizedDescription)")
+                    }
+                    #endif
+                    return
+                }
+                guard let gyroData = gyroData else { return }
+                
+                // Get current magnitude for turn detection
+                if let accelData = self?.motionManager.accelerometerData {
+                    let x = accelData.acceleration.x
+                    let y = accelData.acceleration.y
+                    let z = accelData.acceleration.z
+                    let magnitude = sqrt(x*x + y*y + z*z)
+                    self?.detectTurn(gyroData: gyroData, magnitude: magnitude)
+                }
+            }
         }
     }
     
     func stopMonitoring() {
-        isMonitoring = false
-        state = .off
-        WatchConnectivityManager.shared.sendStateUpdate(state.rawValue)
-        lastAttemptStart = nil
-        lastTurnStart = nil
-        lastSamples.removeAll(keepingCapacity: false)
-        peakTimes.removeAll(keepingCapacity: false)
-        stopCueTimers()
-        motionManager.stopDeviceMotionUpdates()
+        motionManager.stopAccelerometerUpdates()
+        motionManager.stopGyroUpdates()
+        freezeStartTime = nil
+        lastFreezeTime = nil
+        consecutiveFreezes = 0
+        
+        // Stop heartbeat when monitoring stops
+        WatchConnectivityManager.shared.stopHeartbeat()
+        
+        // Stop calibration if running
+        if isCalibrating {
+            stopCalibration()
+        }
     }
-
-    // MARK: - Ingest + detection
-
-    private func ingest(motion: CMDeviceMotion) {
-        guard isMonitoring else { return }
-
-        // Cooldown handling (state stays cooldown until expiry, then drops back to monitoring).
-        if let until = cooldownUntil, Date() < until {
-            state = .cooldown
-        } else if state == .cooldown {
-            cooldownUntil = nil
-            state = .monitoringStill
+    
+    // MARK: - Baseline & Adaptive Threshold
+    
+    private func updateBaseline(_ magnitude: Double) {
+        magnitudeHistory.append(magnitude)
+        if magnitudeHistory.count > historySize {
+            magnitudeHistory.removeFirst()
         }
-
-        let t = motion.timestamp
-        let ax = motion.userAcceleration.x
-        let ay = motion.userAcceleration.y
-        let az = motion.userAcceleration.z
-        let userAccMag = sqrt(ax * ax + ay * ay + az * az)
-
-        let rotX = motion.rotationRate.x
-        let rotY = motion.rotationRate.y
-        let rotZ = motion.rotationRate.z
-        let rotMag = sqrt(rotX * rotX + rotY * rotY + rotZ * rotZ)
-
-        lastSamples.append((t: t, userAccMag: userAccMag, rotZ: abs(rotZ), rotMag: rotMag))
-        trimWindows(now: t)
-
-        updateStepPeaks(now: t)
-        let cadenceHz = stepCadenceHz(now: t)
-
-        // Send 1 Hz telemetry so the iPhone can prove "live + connected" even when no assists happen.
-        if t - lastTelemetrySentAt >= 1.0 {
-            lastTelemetrySentAt = t
-            WatchConnectivityManager.shared.sendTelemetry(
-                LiveTelemetry(
-                    timestamp: Date(),
-                    guardState: state.rawValue,
-                    cadenceHz: cadenceHz,
-                    turnRateRadPerSec: abs(rotZ),
-                    movementIntensity: userAccMag
-                )
-            )
+        
+        // Calculate baseline as median of recent history
+        if magnitudeHistory.count >= 20 {
+            let sorted = magnitudeHistory.sorted()
+            baselineMagnitude = sorted[sorted.count / 2]
         }
-
-        // High-level walking/still classification for UX + gating.
-        if cadenceHz >= 0.85 {
-            if !isCueing {
-                state = .monitoringWalking
-            }
-        } else if !isCueing, state != .cooldown {
-            state = .monitoringStill
+    }
+    
+    // MARK: - Freeze Detection
+    
+    private func handleFreeze(magnitude: Double) {
+        let now = Date()
+        
+        // Calculate severity (0.0 to 1.0)
+        let severity = min(1.0, (magnitude - adaptiveThreshold) / (adaptiveThreshold * 0.5))
+        
+        // Track freeze duration
+        if freezeStartTime == nil {
+            freezeStartTime = now
         }
-
-        // Don’t re-trigger while cueing / cooldown.
-        guard !isCueing else { return }
-        guard cooldownUntil == nil else { return }
-
-        // 1) Initiation freeze assist:
-        // If we detect an "attempt" after being still but do not see steps appear within a short window, cue.
-        if shouldConsiderInitiationAttempt(userAccMag: userAccMag, rotMag: rotMag) {
-            if lastAttemptStart == nil {
-                lastAttemptStart = t
-            }
-        } else if let start = lastAttemptStart {
-            // End the attempt if it fizzles quickly.
-            if t - start > 1.0 && cadenceHz < 0.4 {
-                lastAttemptStart = nil
-            }
+        
+        let duration = now.timeIntervalSince(freezeStartTime ?? now)
+        
+        // Only trigger if enough time has passed since last freeze (debounce)
+        if let lastFreeze = lastFreezeTime, now.timeIntervalSince(lastFreeze) < 0.5 {
+            return // Too soon, ignore
         }
-
-        if let start = lastAttemptStart {
-            let attemptAge = t - start
-            // Require the "attempt" to persist a bit (avoid single sample spikes).
-            if attemptAge >= 0.4 && attemptAge <= 2.2 && cadenceHz < initiationCadenceGateHz() {
-                // If after ~1.3s we still don't see steps, cue.
-                if attemptAge >= 1.3 {
-                    lastAttemptStart = nil
-                    triggerCue(type: .cueingStartAssist)
-                    return
+        
+        triggerRescue(type: "start", severity: severity, duration: duration > 0.1 ? duration : nil)
+        lastFreezeTime = now
+        
+        // If freeze continues, repeat haptics if enabled
+        if WatchConnectivityManager.shared.watchSettings.repeatHaptics && duration > 2.0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                if self?.freezeStartTime != nil {
+                    self?.triggerRescue(type: "start", severity: severity, duration: duration)
                 }
             }
-            // If they started walking, clear attempt.
-            if cadenceHz >= 0.85 {
-                lastAttemptStart = nil
-            }
         }
-
-        // 2) Turn-freeze assist:
-        // Turning is high-risk; cue if there is sustained yaw rotation but cadence stays low.
-        let turningNow = isTurningNow()
-        if turningNow {
-            if lastTurnStart == nil {
-                lastTurnStart = t
+    }
+    
+    // MARK: - Turn Detection
+    
+    private func detectTurn(gyroData: CMGyroData, magnitude: Double) {
+        let rotationRate = sqrt(gyroData.rotationRate.x * gyroData.rotationRate.x +
+                                gyroData.rotationRate.y * gyroData.rotationRate.y +
+                                gyroData.rotationRate.z * gyroData.rotationRate.z)
+        
+        // Turn detection: high rotation rate with low acceleration (pivoting)
+        if rotationRate > 2.0 && magnitude < adaptiveThreshold * 0.8 {
+            let now = Date()
+            if let lastFreeze = lastFreezeTime, now.timeIntervalSince(lastFreeze) < 1.0 {
+                return // Debounce
             }
-        } else {
-            lastTurnStart = nil
+            
+            triggerRescue(type: "turn", severity: min(1.0, rotationRate / 5.0), duration: nil)
+            lastFreezeTime = now
         }
-
-        if let turnStart = lastTurnStart {
-            let turnAge = t - turnStart
-            if turnAge >= 0.6 && cadenceHz < turnCadenceGateHz() {
-                // Persisted turn-without-steps → cue.
-                lastTurnStart = nil
-                triggerCue(type: .cueingTurnAssist)
+    }
+    
+    // MARK: - Haptic Feedback
+    
+    private func triggerRescue(type: String, severity: Double, duration: TimeInterval?) {
+        let now = Date()
+        
+        // Haptic fatigue prevention: enforce cooldown period
+        if let lastHaptic = lastHapticTime {
+            let timeSinceLastHaptic = now.timeIntervalSince(lastHaptic)
+            if timeSinceLastHaptic < hapticCooldownPeriod {
+                // Too soon - skip haptic but still send event
+                WatchConnectivityManager.shared.sendAssistEvent(
+                    type: type,
+                    severity: severity,
+                    duration: duration
+                )
                 return
             }
         }
-    }
-
-    private func trimWindows(now: TimeInterval) {
-        let cutoff = now - maxWindowSeconds
-        if !lastSamples.isEmpty {
-            // Drop old samples.
-            while let first = lastSamples.first, first.t < cutoff {
-                lastSamples.removeFirst()
-            }
-        }
-        // Trim peak history to same window.
-        while let first = peakTimes.first, first < cutoff {
-            peakTimes.removeFirst()
-        }
-    }
-
-    private func shouldConsiderInitiationAttempt(userAccMag: Double, rotMag: Double) -> Bool {
-        // A small movement that suggests an intent to start, not a big shake.
-        return userAccMag > attemptAccThreshold() || rotMag > attemptRotThreshold()
-    }
-
-    private func isTurningNow() -> Bool {
-        // Look at last ~0.4s for sustained yaw (rotZ).
-        guard let newest = lastSamples.last else { return false }
-        let cutoff = newest.t - 0.45
-        let recent = lastSamples.filter { $0.t >= cutoff }
-        guard recent.count >= 8 else { return false } // ~0.16s at 50Hz minimum
-
-        let above = recent.filter { $0.rotZ >= turnYawThresholdRadPerSec() }.count
-        // Require most of that short window to be above threshold.
-        return Double(above) / Double(recent.count) >= 0.70
-    }
-
-    // MARK: - Step peaks (cheap cadence proxy)
-
-    private func updateStepPeaks(now: TimeInterval) {
-        // Need at least 3 samples to detect a local max.
-        guard lastSamples.count >= 3 else { return }
-        let n = lastSamples.count
-        let a0 = lastSamples[n - 3].userAccMag
-        let a1 = lastSamples[n - 2].userAccMag
-        let a2 = lastSamples[n - 1].userAccMag
-
-        // Local max + amplitude threshold.
-        guard a1 > a0, a1 > a2, a1 >= stepPeakThreshold() else { return }
-
-        // Enforce minimum spacing between peaks (avoid double-counting).
-        let minSpacing = 0.28
-        guard (now - lastPeakTime) >= minSpacing else { return }
-
-        lastPeakTime = now
-        peakTimes.append(now)
-    }
-
-    private func stepCadenceHz(now: TimeInterval) -> Double {
-        // Peaks in last 2 seconds → Hz estimate.
-        let window: TimeInterval = 2.0
-        let cutoff = now - window
-        let recentPeaks = peakTimes.filter { $0 >= cutoff }
-        return Double(recentPeaks.count) / window
-    }
-
-    // MARK: - Thresholds (tunable)
-
-    private func attemptAccThreshold() -> Double {
-        // More sensitive => lower threshold.
-        return 0.16 - (0.06 * settings.sensitivity) // ~0.10–0.16 g
-    }
-
-    private func attemptRotThreshold() -> Double {
-        // More sensitive => lower threshold.
-        return 1.2 - (0.5 * settings.sensitivity) // ~0.7–1.2 rad/s
-    }
-
-    private func stepPeakThreshold() -> Double {
-        // More sensitive => lower threshold.
-        return 0.22 - (0.10 * settings.sensitivity) // ~0.12–0.22 g
-    }
-
-    private func turnYawThresholdRadPerSec() -> Double {
-        // More sensitive => lower threshold.
-        return 1.35 - (0.55 * settings.sensitivity) // ~0.8–1.35 rad/s
-    }
-
-    private func initiationCadenceGateHz() -> Double {
-        // If we don't see at least this cadence during an attempt, we consider it "stuck".
-        return 0.55 + (0.10 * (1.0 - settings.sensitivity)) // ~0.55–0.65 Hz
-    }
-
-    private func turnCadenceGateHz() -> Double {
-        return 0.75 + (0.10 * (1.0 - settings.sensitivity)) // ~0.75–0.85 Hz
-    }
-
-    // MARK: - Cueing
-
-    private var isCueing: Bool {
-        state == .cueingStartAssist || state == .cueingTurnAssist
-    }
-
-    private func triggerCue(type: GuardState) {
-        guard type == .cueingStartAssist || type == .cueingTurnAssist else { return }
-        guard isMonitoring else { return }
-
-        // Enter cueing state.
-        state = type
-        recordAssist()
-
-        // Configure cue cadence:
-        // - Start assist: faster rhythm to help initiate stepping
-        // - Turn assist: slightly slower to encourage controlled, staged turns
-        let interval: TimeInterval = (type == .cueingStartAssist) ? 0.48 : 0.62
-
-        stopCueTimers()
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: interval)
-        timer.setEventHandler {
-            // Stronger haptic for real-world cueing.
-            WKInterfaceDevice.current().play(.directionUp)
-        }
-        timer.resume()
-        cueTimer = timer
-
-        let endTimer = DispatchSource.makeTimerSource(queue: .main)
-        endTimer.schedule(deadline: .now() + settings.cueDurationSeconds)
-        endTimer.setEventHandler { [weak self] in
-            self?.endCue()
-        }
-        endTimer.resume()
-        cueEndTimer = endTimer
-    }
-
-    private func endCue() {
-        stopCueTimers()
-        cooldownUntil = Date().addingTimeInterval(settings.cooldownSeconds)
-        state = .cooldown
-    }
-
-    private func stopCueTimers() {
-        cueTimer?.cancel()
-        cueTimer = nil
-        cueEndTimer?.cancel()
-        cueEndTimer = nil
-    }
-
-    // MARK: - Assist stats
-
-    private func loadAssistStats() {
-        let today = Calendar.current.startOfDay(for: Date())
-        let storedDay = defaults.object(forKey: assistsDateKey) as? Date
-
-        if let storedDay, Calendar.current.isDate(storedDay, inSameDayAs: today) {
-            assistsToday = defaults.integer(forKey: assistsCountKey)
-        } else {
-            defaults.set(today, forKey: assistsDateKey)
-            defaults.set(0, forKey: assistsCountKey)
-            assistsToday = 0
-        }
-
-        if let lastAt = defaults.object(forKey: lastAssistAtKey) as? Date {
-            lastAssistText = Self.formatTime(lastAt)
-        } else {
-            lastAssistText = "—"
-        }
-    }
-
-    private func recordAssist() {
-        // Reset daily counter if needed.
-        let today = Calendar.current.startOfDay(for: Date())
-        let storedDay = defaults.object(forKey: assistsDateKey) as? Date
-        if storedDay == nil || !Calendar.current.isDate(storedDay!, inSameDayAs: today) {
-            defaults.set(today, forKey: assistsDateKey)
-            defaults.set(0, forKey: assistsCountKey)
-            assistsToday = 0
-        }
-
-        assistsToday += 1
-        defaults.set(assistsToday, forKey: assistsCountKey)
-
-        let now = Date()
-        defaults.set(now, forKey: lastAssistAtKey)
-        lastAssistText = Self.formatTime(now)
         
-        // Send to iPhone via WatchConnectivity
-        let assistType = (state == .cueingStartAssist) ? "start" : "turn"
-        WatchConnectivityManager.shared.sendAssistEvent(type: assistType)
+        let settings = WatchConnectivityManager.shared.watchSettings
+        let device = WKInterfaceDevice.current()
+        
+        // Select haptic pattern based on settings
+        let hapticType: WKHapticType
+        switch settings.hapticPattern {
+        case "notification":
+            hapticType = .notification
+        case "start":
+            hapticType = .start
+        case "stop":
+            hapticType = .stop
+        case "click":
+            hapticType = .click
+        default:
+            hapticType = .directionUp
+        }
+        
+        // Adjust intensity (watchOS doesn't support intensity directly, but we can repeat)
+        let intensity = settings.hapticIntensity
+        if intensity > 0.7 {
+            device.play(hapticType)
+        } else if intensity > 0.4 {
+            // Medium: single haptic
+            device.play(hapticType)
+        } else {
+            // Low: lighter haptic
+            device.play(.click)
+        }
+        
+        // Update last haptic time
+        lastHapticTime = now
+        
+        // Send event to iPhone
+        WatchConnectivityManager.shared.sendAssistEvent(
+            type: type,
+            severity: severity,
+            duration: duration
+        )
+        
+        // Reset freeze tracking if freeze ended
+        if duration == nil || duration! < 0.1 {
+            freezeStartTime = nil
+        }
     }
-
-    // MARK: - Manual testing helpers (for development / demo)
-
-    enum AssistKind {
-        case start
-        case turn
+    
+    // Public method for test haptic (bypasses cooldown for testing)
+    func triggerTestHaptic() {
+        let settings = WatchConnectivityManager.shared.watchSettings
+        let device = WKInterfaceDevice.current()
+        
+        let hapticType: WKHapticType
+        switch settings.hapticPattern {
+        case "notification":
+            hapticType = .notification
+        case "start":
+            hapticType = .start
+        case "stop":
+            hapticType = .stop
+        case "click":
+            hapticType = .click
+        default:
+            hapticType = .directionUp
+        }
+        
+        device.play(hapticType)
     }
-
-    func testHaptic() {
-        WKInterfaceDevice.current().play(.directionUp)
-    }
-
-    /// Simulate an assist event (updates stats + sends to iPhone) so you can verify UI + connectivity.
-    func simulateAssist(kind: AssistKind) {
-        state = (kind == .start) ? .cueingStartAssist : .cueingTurnAssist
-        recordAssist()
-        WKInterfaceDevice.current().play(.directionUp)
-    }
-
-    private static func formatTime(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateStyle = .none
-        f.timeStyle = .short
-        return f.string(from: date)
+    
+    // MARK: - Battery Monitoring
+    
+    private func checkBatteryLevel() -> Bool {
+        // Note: watchOS doesn't provide direct battery level API
+        // However, we can monitor for low battery through:
+        // 1. WKExtendedRuntimeSession expiration warnings
+        // 2. System notifications (would need UNUserNotificationCenter setup)
+        // 3. Session invalidation reasons
+        
+        // For now, we'll rely on session expiration warnings
+        // The SessionManager will handle session expiration and stop monitoring
+        // This method can be enhanced when battery APIs become available
+        
+        // Return false (battery OK) - actual monitoring happens via session expiration
+        return false
     }
 }

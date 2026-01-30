@@ -9,11 +9,6 @@ final class SessionManager: NSObject, ObservableObject, WKExtendedRuntimeSession
     private var session: WKExtendedRuntimeSession?
 
     func startSession() {
-        // Avoid starting multiple sessions.
-        guard session == nil else {
-            isSessionActive = true
-            return
-        }
         let s = WKExtendedRuntimeSession()
         s.delegate = self
         s.start()
@@ -33,6 +28,11 @@ final class SessionManager: NSObject, ObservableObject, WKExtendedRuntimeSession
 
     func extendedRuntimeSessionWillExpire(_ session: WKExtendedRuntimeSession) {
         isSessionActive = false
+        // Session expiring often indicates low battery or system resource constraints
+        // Trigger haptic alert
+        #if os(watchOS)
+        WKInterfaceDevice.current().play(.notification)
+        #endif
     }
 
     func extendedRuntimeSession(_ session: WKExtendedRuntimeSession,
